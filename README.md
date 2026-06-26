@@ -1,5 +1,20 @@
 # ccusage-report
 
+<div align="center">
+  <a href="https://github.com/Seika139/ccusage-report/actions/workflows/uv-qualify.yml">
+    <img alt="Qualify Code" src="https://github.com/Seika139/ccusage-report/actions/workflows/uv-qualify.yml/badge.svg">
+  </a>
+  <a href="https://github.com/Seika139/ccusage-report/actions/workflows/lint-markdown.yml">
+    <img alt="Lint Markdown" src="https://github.com/Seika139/ccusage-report/actions/workflows/lint-markdown.yml/badge.svg">
+  </a>
+  <a href="https://github.com/Seika139/ccusage-report/actions/workflows/lint-yaml.yml">
+    <img alt="Lint YAML" src="https://github.com/Seika139/ccusage-report/actions/workflows/lint-yaml.yml/badge.svg">
+  </a>
+  <a href="https://github.com/Seika139/ccusage-report/actions/workflows/shellcheck.yml">
+    <img alt="ShellCheck" src="https://github.com/Seika139/ccusage-report/actions/workflows/shellcheck.yml/badge.svg">
+  </a>
+</div>
+
 [ccusage](https://github.com/ryoppippi/ccusage) の JSON 出力を **モデル別 × 日次** に集計し、グラフとコスト削減示唆を含む自己完結 HTML レポートを生成する個人ツール。
 
 サーバ不要。生成された 1 枚の HTML をブラウザで開くだけ（グラフは Chart.js を CDN から SRI 検証付きで読み込む）。
