@@ -83,3 +83,16 @@ uv run report.py --provider codex      # codex のみ
 - ccusage は実際の請求額ではなく、ログ上のトークン数 × 公開単価による**推定コスト**を返す。
 - 月末予測の分母は対象期間の全日数（未使用日も含む）。burn rate として見るなら `--since` で直近に絞ると現実的。
 - Chart.js のバージョンは SRI ハッシュと対で固定している。更新時は `report.py` の `src` / `integrity` を両方差し替えること。
+
+## 開発
+
+### push ルール（ブランチ保護）
+
+個人ツールのため `main` への直接 push を許可している。PR は必須ではない。
+
+- **`main` へ直接 push 可**（PR レビュー・required status checks によるゲートはなし）。
+- **force-push は禁止**（`non_fast_forward`）。履歴の破壊的な書き換えはできない。
+- **`main` ブランチの削除は禁止**（`deletion`）。
+- CI（`uv-qualify` / `lint-markdown` / `lint-yaml` / `shellcheck`）は push 時に実行されるが、push やマージをブロックしない。バッジで結果を確認する。
+
+ブランチ保護ルールは GitHub UI ではなく [`Seika139/.github`](https://github.com/Seika139/.github) の Terraform（`terraform/github/locals.tf` の `ccusage-report` エントリ）で管理している。変更する場合は同リポジトリで `mise run terra-plan` / `terra-apply` を実行すること。
