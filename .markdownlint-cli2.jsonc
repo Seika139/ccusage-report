@@ -1,0 +1,17 @@
+{
+  "config": {
+    "default": true,
+    "MD009": {
+      "code_blocks": true,
+      "strict": true
+    }, // 行末の空白を禁じる
+    "MD013": false, // 行の長さは自由
+    "MD024": false, // 重複した見出しを許可
+    "MD033": false, // HTML タグを許可
+    "MD036": false, // 強調表示の過剰使用を許可
+    "MD041": false, // ファイルの最初の行を見出しにする必要なし
+    "MD060": false // 表の列スタイルの不一致を許可
+  },
+  "gitignore": true,
+  "globs": ["**/*.md"]
+}

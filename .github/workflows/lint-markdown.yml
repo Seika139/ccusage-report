@@ -1,0 +1,18 @@
+---
+name: Lint Markdown (reusable)
+
+"on":
+  push:
+  pull_request:
+  workflow_dispatch:
+# 注意: 呼び出し先のワークフローの 'markdown_glob' 入力は、ローカル設定ファイルの 'globs' よりも優先されます。
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+jobs:
+  call-common-markdownlint:
+    uses: Seika139/.github/.github/workflows/lint-markdown.yml@main
+    secrets: inherit
