@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# 生成物の出力ディレクトリ。git では追跡せず、report.py が実行時に自動生成する。
+out/

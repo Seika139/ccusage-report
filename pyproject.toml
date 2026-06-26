@@ -1,0 +1,55 @@
+[project]
+name = "ccusage-report"
+version = "0.1.0"
+description = "ccusage の JSON をモデル別×日次に集計し自己完結 HTML レポートを生成する個人ツール"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+# 実行時は標準ライブラリのみ。ccusage CLI を subprocess 経由で呼ぶため Python 依存はゼロ。
+dependencies = []
+
+[dependency-groups]
+dev = ["mypy>=1.20.2", "pytest>=9.0.1", "ruff>=0.15.12"]
+
+[tool.uv]
+# 単一スクリプトのため wheel 配布しない（非パッケージモード）。
+# これにより [build-system] も src/ レイアウトも不要で report.py をフラットに置ける。
+package = false
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+  "RUF", # Ruff 固有
+]
+ignore = [
+  # 日本語コメント・文字列中の全角記号（（）「」：等）を半角と紛らわしいと
+  # 警告するルール。日本語主体のツールでは誤検知のため無効化する。
+  "RUF001",
+  "RUF002",
+  "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# report.py は HTML/CSS/JS テンプレートを f-string で埋め込むため、
+# テンプレート行は途中で折ると可読性が落ちる。行長制限のみ緩める。
+"report.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+
+[tool.pytest.ini_options]
+# report.py をプロジェクトルートから import できるようにする。
+pythonpath = ["."]
+testpaths = ["tests"]

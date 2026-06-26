@@ -1,0 +1,36 @@
+[tools]
+dprint = "latest"
+python = "3.13"
+shellcheck = "latest"
+shfmt = "latest"
+uv = "latest"
+yamllint = "latest"
+
+[tasks.init]
+description = "依存をインストールして開発環境を初期化する"
+quiet = true
+depends = ["permit"]
+run = ["mise install", "uv sync"]
+
+[tasks.permit]
+description = "必要な権限を付与する"
+quiet = true
+run = [
+  "test -d mise/ && find mise/ -type f -name '*.sh' -exec chmod +x {} +",
+  "test -d mise/tasks/ && find mise/tasks/ -type f -name '*.sh' -exec chmod +x {} +",
+]
+
+[tasks.typecheck]
+description = "mypy strict で型検査する"
+hide = true
+run = ["uv run mypy report.py"]
+
+[tasks.test]
+description = "pytest を実行する"
+hide = true
+run = ["uv run pytest -q"]
+
+[tasks.check]
+description = "lint + typecheck + test を一括実行する (CI 想定)"
+depends = ["typecheck", "test", "permit"]
+run = ["mise run lint"]
