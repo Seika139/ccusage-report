@@ -50,6 +50,7 @@ METRICS: list[tuple[str, str, str | None]] = [
     ("output", "Output", "output"),
     ("cache_create", "Cache Create", "cache_create"),
     ("cache_read", "Cache Read", "cache_read"),
+    ("effective_input", "Effective Input", None),
     ("total", "Total Tokens", None),
 ]
 
@@ -84,10 +85,25 @@ class ModelAgg:
         """Total Tokens（入出力 + キャッシュの和）。"""
         return self.input + self.output + self.cache_read + self.cache_create
 
+    @property
+    def effective_input(self) -> int:
+        """Effective Input（キャッシュ込みの入力側ワークロード）。
+
+        非キャッシュ input にキャッシュ read/create を加えた「そのモデルが処理した
+        入力コンテキスト総量」。Anthropic の prompt caching と OpenAI のキャッシュで
+        `input` の意味が分裂するのを正規化し、プロバイダ横断で物量を比較できる。
+        """
+        return self.input + self.cache_read + self.cache_create
+
+    @property
+    def cost_per_meffective(self) -> float:
+        """Effective Input 100 万トークンあたりの USD（実効単価）。"""
+        if self.effective_input == 0:
+            return 0.0
+        return self.cost / self.effective_input * 1_000_000
+
     def metric(self, key: str) -> float:
-        """指標キーに対応する値を返す（"total" は派生算出）。"""
-        if key == "total":
-            return self.total
+        """指標キーに対応する値を返す（"total"/"effective_input" は property 経由）。"""
         return float(getattr(self, key))
 
 
@@ -238,7 +254,7 @@ def render_daily_table(rep: Report, color_of: dict[str, str]) -> str:
     各日について All 行（その日の全モデル合算）を出し、続けてモデル別行を
     コスト降順で並べる。新しい日付が上に来るよう降順で表示する。
     """
-    cols = ("input", "output", "cache_create", "cache_read", "total")
+    cols = ("input", "output", "cache_create", "cache_read", "effective_input", "total")
 
     def cells(a: ModelAgg) -> str:
         nums = "".join(f"<td class='num'>{int(a.metric(c)):,}</td>" for c in cols)
@@ -292,7 +308,9 @@ def render_html(rep: Report, provider: str) -> str:
         f"<tr><td><span class='dot' style='background:{color_of[m]}'></span>{m}</td>"
         f"<td class='num'>{a.input:,}</td><td class='num'>{a.output:,}</td>"
         f"<td class='num'>{a.cache_read:,}</td><td class='num'>{a.cache_create:,}</td>"
+        f"<td class='num'>{a.effective_input:,}</td>"
         f"<td class='num'>${a.cost:,.2f}</td>"
+        f"<td class='num'>${a.cost_per_meffective:,.2f}</td>"
         f"<td class='num'>{(a.cost / total_cost if total_cost else 0):.1%}</td></tr>"
         for m, a in ((m, rep.by_model[m]) for m in models)
     )
@@ -310,9 +328,9 @@ def render_html(rep: Report, provider: str) -> str:
         },
         ensure_ascii=False,
     )
-    # 指標セレクタの option 要素。既定の選択は Total Tokens。
+    # 指標セレクタの option 要素。既定は Effective Input（プロバイダ横断比較に最適）。
     metric_options = "".join(
-        f"<option value='{key}'{' selected' if key == 'total' else ''}>{label}</option>"
+        f"<option value='{key}'{' selected' if key == 'effective_input' else ''}>{label}</option>"
         for key, label, _attr in METRICS
     )
 
@@ -345,6 +363,10 @@ def render_html(rep: Report, provider: str) -> str:
   table.daily {{ font-size: .8rem; }}
   table.daily td, table.daily th {{ padding: .35rem .5rem; }}
   table.daily tr.day-all {{ background: #f3f4f6; font-weight: 600; border-top: 2px solid #d1d5db; }}
+  details.note {{ background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: .5rem .8rem; margin: .8rem 0; font-size: .85rem; }}
+  details.note summary {{ cursor: pointer; color: #374151; font-weight: 600; }}
+  details.note p {{ margin: .5rem 0; }}
+  details.note code {{ background: #eef2ff; padding: .05rem .3rem; border-radius: 3px; font-size: .9em; }}
 </style>
 </head>
 <body>
@@ -355,6 +377,14 @@ def render_html(rep: Report, provider: str) -> str:
   <ul class="insights">{insight_html}</ul>
 
   <h2>モデル別 × 日次の推移</h2>
+  <details class="note" open>
+    <summary>「Effective Input」「$/M Eff.」とは？</summary>
+    <p><b>Effective Input</b> = <code>input + cache_read + cache_create</code>。そのモデルが処理した入力コンテキストの総量（出力は含まない）。
+    Claude はキャッシュヒット分が <code>input</code> から分離されるため、Codex とそのまま <code>input</code> 列を比べると Claude が極端に小さく見える。
+    両者を <code>cache_read</code>/<code>cache_create</code> ごと足して正規化したのが Effective Input で、プロバイダ横断で「どれだけ仕事させたか」を比較できる。</p>
+    <p><b>$/M Eff.</b> = <code>cost ÷ Effective Input × 1,000,000</code>。Effective Input 100 万トークンあたりに支払った USD（実効単価）。
+    API の公称単価ではなく「あなたの使い方での単価」で、キャッシュをよく当てるほど数値が下がる。モデル間の<b>コスパ比較</b>にはこれを見るのが一番フェア。</p>
+  </details>
   <p class="ctrl">指標:
     <select id="metric">{metric_options}</select>
     <label><input type="checkbox" id="stacked" checked> 積み上げ</label>
@@ -365,7 +395,7 @@ def render_html(rep: Report, provider: str) -> str:
   <table class="daily">
     <thead><tr><th>Date</th><th>Model</th><th class="num">Input</th><th class="num">Output</th>
       <th class="num">Cache Create</th><th class="num">Cache Read</th>
-      <th class="num">Total Tokens</th><th class="num">Cost</th></tr></thead>
+      <th class="num">Effective Input</th><th class="num">Total Tokens</th><th class="num">Cost</th></tr></thead>
     <tbody>{daily_table}</tbody>
   </table>
 
@@ -373,10 +403,16 @@ def render_html(rep: Report, provider: str) -> str:
   <table>
     <thead><tr><th>Model</th><th class="num">Input</th><th class="num">Output</th>
       <th class="num">Cache Read</th><th class="num">Cache Create</th>
-      <th class="num">Cost</th><th class="num">Share</th></tr></thead>
+      <th class="num">Effective Input</th>
+      <th class="num">Cost</th><th class="num" title="Cost per 1M Effective Input tokens">$/M Eff.</th>
+      <th class="num">Share</th></tr></thead>
     <tbody>{rows}
       <tr class="total"><td>合計</td><td class="num"></td><td class="num"></td>
-        <td class="num"></td><td class="num"></td><td class="num">${total_cost:,.2f}</td><td class="num">100%</td></tr>
+        <td class="num"></td><td class="num"></td>
+        <td class="num">{sum(a.effective_input for a in rep.by_model.values()):,}</td>
+        <td class="num">${total_cost:,.2f}</td>
+        <td class="num"></td>
+        <td class="num">100%</td></tr>
     </tbody>
   </table>
 
