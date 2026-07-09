@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 import webbrowser
@@ -134,17 +136,78 @@ def resolve_since(
     return (today - timedelta(days=span)).strftime("%Y%m%d")
 
 
+def resolve_ccusage_cmd() -> list[str]:
+    """ccusage を起動するコマンドを返す。
+
+    Volta の shim は Windows では .cmd 経由になり、Python から直接呼ぶと環境に
+    よって解決に失敗するため、Volta 管理下なら package image の実体を使う。
+    """
+    ccusage = shutil.which("ccusage") or shutil.which("ccusage.cmd")
+    volta = resolve_volta()
+
+    if ccusage:
+        sibling_volta = Path(ccusage).with_name("volta.exe")
+        if sibling_volta.is_file() and (volta_package_bin := resolve_volta_package_bin()):
+            return [volta_package_bin]
+        return [ccusage]
+
+    if volta_package_bin := resolve_volta_package_bin():
+        return [volta_package_bin]
+    if volta:
+        return [volta, "run", "ccusage"]
+
+    sys.exit("error: `ccusage` が見つかりません。PATH を確認してください。")
+
+
+def resolve_volta() -> str | None:
+    """PATH または Volta の既定配置から volta.exe を探す。"""
+    volta = shutil.which("volta") or shutil.which("volta.exe")
+    if volta:
+        return volta
+
+    candidates: list[Path] = []
+    if volta_home := os.environ.get("VOLTA_HOME"):
+        candidates.append(Path(volta_home) / "bin" / "volta.exe")
+    if user_profile := os.environ.get("USERPROFILE"):
+        candidates.append(Path(user_profile) / ".volta" / "bin" / "volta.exe")
+    candidates.append(Path.home() / ".volta" / "bin" / "volta.exe")
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def resolve_volta_package_bin() -> str | None:
+    """Volta が展開した ccusage package の実体コマンドを探す。"""
+    for volta_home in volta_home_candidates():
+        command = volta_home / "tools" / "image" / "packages" / "ccusage" / "ccusage.cmd"
+        if command.is_file():
+            return str(command)
+    return None
+
+
+def volta_home_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    if volta_home := os.environ.get("VOLTA_HOME"):
+        candidates.append(Path(volta_home))
+    if user_profile := os.environ.get("USERPROFILE"):
+        candidates.append(Path(user_profile) / ".volta")
+    candidates.append(Path.home() / ".volta")
+    return candidates
+
+
 def run_ccusage(since: str | None, until: str | None) -> dict[str, Any]:
     """ccusage daily -j を実行して JSON を返す。"""
-    cmd = ["ccusage", "daily", "-j"]
+    cmd = [*resolve_ccusage_cmd(), "daily", "-j"]
+    if os.environ.get("CCUSAGE_REPORT_DEBUG"):
+        print(f"debug: ccusage command: {cmd}", file=sys.stderr)
     if since:
         cmd += ["--since", since]
     if until:
         cmd += ["--until", until]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    except FileNotFoundError:
-        sys.exit("error: `ccusage` が見つかりません。PATH を確認してください。")
     except subprocess.CalledProcessError as e:
         sys.exit(f"error: ccusage 実行に失敗しました\n{e.stderr}")
     result: dict[str, Any] = json.loads(proc.stdout)

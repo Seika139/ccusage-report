@@ -19,6 +19,28 @@ cd "$ROOT_DIR"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/mise/common.sh"
 
+prepend_path_if_dir() {
+  if [ -n "${1:-}" ] && [ -d "$1" ]; then
+    export PATH="${1}:${PATH}"
+  fi
+}
+
+to_unix_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "$1" 2>/dev/null || printf '%s\n' "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+prepend_path_if_dir "${HOME}/.volta/bin"
+if [ -n "${VOLTA_HOME:-}" ]; then
+  prepend_path_if_dir "$(to_unix_path "${VOLTA_HOME}")/bin"
+fi
+if [ -n "${USERPROFILE:-}" ]; then
+  prepend_path_if_dir "$(to_unix_path "${USERPROFILE}")/.volta/bin"
+fi
+
 # mise usage の値を report.py の引数へ組み立てる。デフォルト値の正本は report.py 側に
 # 一本化するため、ここでは未指定の flag は引数として渡さない（値が空なら付与しない）。
 args=()
