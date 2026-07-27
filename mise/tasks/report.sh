@@ -10,6 +10,7 @@
 #USAGE flag "--until <until>" help="終了日 YYYYMMDD"
 #USAGE flag "-o --output <output>" help="出力 HTML パス（既定は out/ 配下に自動命名）"
 #USAGE flag "--no-open" help="生成後にブラウザを開かない"
+#USAGE flag "--no-log-analysis" help="生ログ解析（無駄トークンの深掘り）をスキップする"
 
 set -euo pipefail
 
@@ -51,6 +52,7 @@ args=()
 [ -n "${usage_until:-}" ] && args+=(--until "${usage_until}")
 [ -n "${usage_output:-}" ] && args+=(--output "${usage_output}")
 [ "${usage_no_open:-false}" = "true" ] && args+=(--no-open)
+[ "${usage_no_log_analysis:-false}" = "true" ] && args+=(--no-log-analysis)
 
 print_blue "generating ccusage report"$'\n'
 uv run report.py "${args[@]}"

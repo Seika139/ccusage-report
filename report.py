@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import shutil
@@ -28,6 +29,14 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+
+from logstats import (
+    TOP_N_ROWS,
+    LogStats,
+    SignalResult,
+    build_rate_table,
+    collect_log_stats,
+)
 
 # --since/--days/--all いずれも未指定のときに集計する既定日数。
 # 全期間だと棒グラフが細くなりすぎるため、直近 N 日に絞る。
@@ -147,7 +156,9 @@ def resolve_ccusage_cmd() -> list[str]:
 
     if ccusage:
         sibling_volta = Path(ccusage).with_name("volta.exe")
-        if sibling_volta.is_file() and (volta_package_bin := resolve_volta_package_bin()):
+        if sibling_volta.is_file() and (
+            volta_package_bin := resolve_volta_package_bin()
+        ):
             return [volta_package_bin]
         return [ccusage]
 
@@ -181,7 +192,9 @@ def resolve_volta() -> str | None:
 def resolve_volta_package_bin() -> str | None:
     """Volta が展開した ccusage package の実体コマンドを探す。"""
     for volta_home in volta_home_candidates():
-        command = volta_home / "tools" / "image" / "packages" / "ccusage" / "ccusage.cmd"
+        command = (
+            volta_home / "tools" / "image" / "packages" / "ccusage" / "ccusage.cmd"
+        )
         if command.is_file():
             return str(command)
     return None
@@ -245,12 +258,14 @@ def default_output_path(rep: Report, provider: str) -> Path:
     return OUTPUT_DIR / f"ccusage-report_{provider}_{start}_{end}.html"
 
 
-def build_insights(rep: Report) -> list[dict[str, str]]:
+def build_insights(rep: Report, stats: LogStats | None = None) -> list[dict[str, str]]:
     """ルールベースの削減示唆を生成する（LLM 不使用・決定的）。"""
     insights: list[dict[str, str]] = []
     total_cost = sum(m.cost for m in rep.by_model.values())
     if total_cost <= 0:
         return [{"level": "info", "text": "対象期間にコストが検出されませんでした。"}]
+
+    insights += build_waste_insights(stats)
 
     # (1) 高コストモデルの偏り: Opus が総額の 70% 超なら軽量モデル移行余地。
     for model, agg in rep.by_model.items():
@@ -293,6 +308,114 @@ def build_insights(rep: Report) -> list[dict[str, str]]:
             0, {"level": "ok", "text": "顕著なコスト非効率は検出されませんでした。"}
         )
     return insights
+
+
+def build_waste_insights(stats: LogStats | None) -> list[dict[str, str]]:
+    """生ログ解析で発火したシグナルごとに要約 1 行の示唆を作る。
+
+    参考表（`reference=True`）は無駄と断定した値ではないため示唆にしない。
+    """
+    if stats is None:
+        return []
+    return [
+        {
+            "level": "warn",
+            "text": f"{sig.title}: {sig.count:,} 件 / 約 {sig.tokens:,} トークン相当"
+            f"（推定 ${sig.usd:,.2f}）を検出しました。詳細は「無駄なトークンの深掘り」を参照。",
+        }
+        for sig in stats.signals
+        if not sig.reference
+    ]
+
+
+def render_signal_table(sig: SignalResult) -> str:
+    """SignalResult の columns/rows から汎用的にテーブルを組み立てる。
+
+    シグナルごとに個別の f-string を書かないための唯一の描画経路。
+    列定義は (ラベル, 数値右寄せか) のタプル列で受け取る。
+
+    セルの値はログ由来の自由文字列（tool 名・プロジェクトのパス等）を含む。
+    生成物は `file://` オリジンで開かれるため、必ず `html.escape` を通す。
+    """
+    head = "".join(
+        f"<th class='num'>{html.escape(label)}</th>"
+        if numeric
+        else f"<th>{html.escape(label)}</th>"
+        for label, numeric in sig.columns
+    )
+    numeric_flags = [numeric for _label, numeric in sig.columns]
+    body = "".join(
+        "<tr>"
+        + "".join(
+            f"<td class='num'>{html.escape(cell)}</td>"
+            if i < len(numeric_flags) and numeric_flags[i]
+            else f"<td>{html.escape(cell)}</td>"
+            for i, cell in enumerate(row)
+        )
+        + "</tr>"
+        for row in sig.rows
+    )
+    return f"<table class='daily'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+# 確度階層の表示ラベル。無駄でないものを無駄と呼ぶとレポート全体の信頼性が落ちるため、
+# 各シグナルの確からしさを HTML 上でも必ず明示する。
+CONFIDENCE_LABELS = {
+    "high": "確度: 高",
+    "medium": "確度: 中",
+    "low": "確度: 低（参考値）",
+}
+
+
+def render_waste_sections(stats: LogStats) -> str:
+    """生ログ解析の結果セクションを組み立てる。"""
+    if not stats.signals:
+        return """
+  <h2>無駄なトークンの深掘り（生ログ解析）</h2>
+  <p class="sub">対象期間に検出されたシグナルはありません。</p>
+"""
+    # `key` / `title` / `description` はログ由来の文言（`<synthetic>` など）を
+    # 含みうるので、必ずエスケープしてから埋め込む。
+    blocks = "".join(
+        f"""
+  <h3>{html.escape(sig.key)}: {html.escape(sig.title)} <span class="sub">（{html.escape(CONFIDENCE_LABELS.get(sig.confidence, sig.confidence))}）</span></h3>
+  <p class="sub">集計対象 {sig.count:,} 件 / 約 {sig.tokens:,} トークン相当 / 推定 <b>${sig.usd:,.2f}</b></p>
+  <p class="sub">表は金額の大きい順に最大 {TOP_N_ROWS} 行（現在 {len(sig.rows)} 行）。合計に含めない参考行を含む場合がある。</p>
+  <p class="sub">{html.escape(sig.description)}</p>
+  {render_signal_table(sig)}
+"""
+        for sig in stats.signals
+    )
+    return f"""
+  <h2>無駄なトークンの深掘り（生ログ解析）</h2>
+  <details class="note" open>
+    <summary>この数字は何か？</summary>
+    <p>ローカルのセッションログ（<code>~/.claude/projects</code> と <code>~/.codex/sessions</code>）を直接読み、
+    1 tool 呼び出し・1 圧縮イベント単位まで降りて「支払ったが価値に結び付きにくかったトークン」を推定したもの。
+    外部への送信は一切行わない。</p>
+    <p>金額はすべて<b>推定</b>であり請求額ではない。単価は ccusage の実コストからモデル別に逆算しており、
+    廃棄・再送されたコンテキストは <code>cache_read</code> 相当（基準単価の 0.1 倍）で換算している。</p>
+  </details>
+  {blocks}
+  {render_skipped_files(stats)}
+"""
+
+
+def render_skipped_files(stats: LogStats) -> str:
+    """走査したファイル数と、読めなかったファイルの例を出す。"""
+    # パスはログ由来（ディレクトリ名に任意の文字が入りうる）なのでエスケープする。
+    paths = "".join(
+        f"<li><code>{html.escape(p)}</code></li>" for p in stats.skipped_paths
+    )
+    detail = f"<ul>{paths}</ul>" if paths else ""
+    return f"""
+  <details class="note">
+    <summary>解析の健全性（走査 {stats.scanned_files:,} ファイル / スキップ {stats.skipped_files:,} / 破損行 {stats.broken_lines:,}）</summary>
+    <p>スキップは読み取りに失敗したファイル、破損行は JSON として解釈できなかった行の数。
+    いずれも解析対象から除外しているため、これらが多いと推定値は過小になる。</p>
+    {detail}
+  </details>
+"""
 
 
 def palette(n: int) -> list[str]:
@@ -342,7 +465,7 @@ def render_daily_table(rep: Report, color_of: dict[str, str]) -> str:
     return "".join(blocks)
 
 
-def render_html(rep: Report, provider: str) -> str:
+def render_html(rep: Report, provider: str, stats: LogStats | None = None) -> str:
     models = sorted(rep.by_model, key=lambda m: -rep.by_model[m].cost)
     colors = palette(len(models))
     color_of = dict(zip(models, colors, strict=True))
@@ -378,9 +501,11 @@ def render_html(rep: Report, provider: str) -> str:
         for m, a in ((m, rep.by_model[m]) for m in models)
     )
 
-    insights = build_insights(rep)
+    insights = build_insights(rep, stats)
     insight_html = "".join(
-        f"<li class='ins-{i['level']}'>{i['text']}</li>" for i in insights
+        # 示唆の文面はシグナルのタイトル（`<synthetic>` 等を含みうる）を埋め込む。
+        f"<li class='ins-{html.escape(i['level'])}'>{html.escape(i['text'])}</li>"
+        for i in insights
     )
 
     chart_payload = json.dumps(
@@ -398,6 +523,7 @@ def render_html(rep: Report, provider: str) -> str:
     )
 
     daily_table = render_daily_table(rep, color_of)
+    waste_sections = render_waste_sections(stats) if stats is not None else ""
 
     return f"""<!doctype html>
 <html lang="ja">
@@ -461,7 +587,7 @@ def render_html(rep: Report, provider: str) -> str:
       <th class="num">Effective Input</th><th class="num">Total Tokens</th><th class="num">Cost</th></tr></thead>
     <tbody>{daily_table}</tbody>
   </table>
-
+{waste_sections}
   <h2>モデル別サマリ</h2>
   <table>
     <thead><tr><th>Model</th><th class="num">Input</th><th class="num">Output</th>
@@ -539,6 +665,11 @@ def main() -> None:
         help=f"出力 HTML パス (default: {OUTPUT_DIR}/ccusage-report_<provider>_<開始>_<終了>.html)",
     )
     ap.add_argument("--no-open", action="store_true", help="生成後にブラウザを開かない")
+    ap.add_argument(
+        "--no-log-analysis",
+        action="store_true",
+        help="生ログ解析（無駄トークンの深掘り）をスキップする",
+    )
     args = ap.parse_args()
 
     since = resolve_since(args.since, args.days, args.show_all, date.today())
@@ -547,7 +678,20 @@ def main() -> None:
     if not rep.by_model:
         sys.exit(f"対象 provider='{args.provider}' のデータがありませんでした。")
 
-    html = render_html(rep, args.provider)
+    # 生ログ解析は補助情報なので、失敗してもレポート生成自体は止めない。
+    stats: LogStats | None = None
+    if not args.no_log_analysis:
+        try:
+            stats = collect_log_stats(
+                rates=build_rate_table(rep),
+                since=since,
+                until=args.until,
+                provider=args.provider,
+            )
+        except Exception as e:
+            print(f"warning: 生ログ解析に失敗しました: {e}", file=sys.stderr)
+
+    html = render_html(rep, args.provider, stats)
     # 未指定なら実集計期間からスクリプト基準の out/ に命名、指定時は cwd 基準で解決する。
     out = (
         default_output_path(rep, args.provider)

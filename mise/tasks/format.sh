@@ -13,8 +13,8 @@ print_blue "formatting Markdown, TOML, JSON with dprint"$'\n'
 dprint fmt
 
 print_blue "formatting Python scripts with ruff"$'\n'
-uv run ruff format report.py tests/
-uv run ruff check --fix report.py tests/
+uv run ruff format report.py logstats.py tests/
+uv run ruff check --fix report.py logstats.py tests/
 
 # shfmt でフォーマットするファイル・ディレクトリのリスト
 shell_files=(

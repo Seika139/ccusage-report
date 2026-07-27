@@ -13,7 +13,7 @@ print_blue "linting Markdown, TOML, JSON with dprint"$'\n'
 dprint check
 
 print_blue "linting Python scripts with ruff"$'\n'
-uv run ruff check report.py tests/
+uv run ruff check report.py logstats.py tests/
 
 print_blue "Lint shell scripts with shfmt & shellcheck"$'\n'
 shellcheck_files=()

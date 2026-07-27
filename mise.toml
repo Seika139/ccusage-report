@@ -23,7 +23,7 @@ run = [
 [tasks.typecheck]
 description = "mypy strict で型検査する"
 hide = true
-run = ["uv run mypy report.py"]
+run = ["uv run mypy report.py logstats.py"]
 
 [tasks.test]
 description = "pytest を実行する"
