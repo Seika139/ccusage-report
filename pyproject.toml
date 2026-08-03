@@ -8,7 +8,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = []
 
 [dependency-groups]
-dev = ["mypy>=2.3.0", "pytest>=9.0.1", "ruff>=0.15.22"]
+dev = ["mypy>=2.3.0", "pytest>=9.0.1", "ruff>=0.16.0"]
 
 [tool.uv]
 # 単一スクリプトのため wheel 配布しない（非パッケージモード）。
