@@ -8,13 +8,8 @@ name: Qualify Code (reusable)
 
 jobs:
   call-common-uv-qualify:
-    strategy:
-      fail-fast: false # いずれかのバージョンで失敗しても他のバージョンの実行を継続する
-      matrix:
-        # このプロジェクトは pyproject.toml で requires-python = ">=3.13,<3.14" を要求するため 3.13 のみ
-        python-version: ["3.13"]
-
+    # このプロジェクトは pyproject.toml で requires-python = ">=3.13,<3.14" を要求するため 3.13 のみ
     uses: Seika139/.github/.github/workflows/uv-qualify.yml@main
     with:
-      python-version: ${{ matrix.python-version }}
+      python-version: "3.13"
     secrets: inherit
