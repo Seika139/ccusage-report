@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["* 0-9 * * 1"],
+  "minimumReleaseAge": "7 days",
+  "enabledManagers": ["mise"],
+  "includePaths": ["mise.toml"],
+  "packageRules": [
+    {
+      "matchManagers": ["mise"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    }
+  ]
+}
